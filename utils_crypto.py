@@ -30,5 +30,28 @@ def decrypt_aes(key, encoded_data):
     padded_plaintext = decryptor.update(ciphertext) + decryptor.finalize()
     return unpad(padded_plaintext)
 
+
+def encrypt_chacha20(key, plaintext):
+    nonce = os.urandom(16)
+    cipher = Cipher(algorithms.ChaCha20(key, nonce), mode=None)
+    encryptor = cipher.encryptor()
+    ciphertext = encryptor.update(plaintext)
+    return base64.b64encode(nonce + ciphertext)
+
+def decrypt_chacha20(key, encoded_data):
+    data = base64.b64decode(encoded_data)
+    nonce = data[:16]
+    ciphertext = data[16:]
+    cipher = Cipher(algorithms.ChaCha20(key, nonce), mode=None)
+    decryptor = cipher.decryptor()
+    return decryptor.update(ciphertext)
+
+def benchmark(crypto_fn, *args):
+    start = time.time()
+    result = crypto_fn(*args)
+    end = time.time()
+    return result, round((end - start) * 1000, 3)  # tiempo en ms
+
+
 def generar_nonce():
     return os.urandom(16)
