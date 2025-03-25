@@ -9,8 +9,6 @@ os.makedirs("claves", exist_ok=True)
 # Claves maestras para A y B
 master_key_A = os.urandom(32)
 master_key_B = os.urandom(32)
-
-# Clave de sesión (compartida entre A y B)
 clave_sesion = os.urandom(32)
 print(">> Clave de sesión generada (secreta)")
 

@@ -4,70 +4,63 @@ import time
 import paho.mqtt.client as mqtt
 from utils_crypto import encrypt_aes, decrypt_aes, generar_nonce
 
-# Leer claves
+print("[B] Iniciando Nodo B (Servidor Médico)")
+
 with open("claves/clave_maestra_B.bin", "rb") as f:
     master_key = f.read()
-
 with open("claves/clave_sesion.bin", "rb") as f:
     clave_cifrada = encrypt_aes(master_key, f.read())
-
 clave_sesion = decrypt_aes(master_key, clave_cifrada)
+print("[B] Clave de sesión descifrada correctamente")
 
 broker = "localhost"
 client = mqtt.Client()
 
-# Parte 1: responder autenticación de A
+autenticado = []
+nonce_B = generar_nonce()
+
+# ---- RESPONDER AL NONCE DE A ----
 def on_authA(client, userdata, msg):
-    nonce_recibido = decrypt_aes(clave_sesion, msg.payload)
-    respuesta = encrypt_aes(clave_sesion, nonce_recibido)
-    client.publish("ucisec/authA_response", respuesta)
-    print("<< Nodo A autenticado correctamente")
+    nonce = decrypt_aes(clave_sesion, msg.payload)
+    print(f"[B] Recibido nonce A: {nonce.hex()}")
+    client.publish("ucisec/authA_response", encrypt_aes(clave_sesion, nonce))
+    print("[B] Respuesta enviada a A")
+
+# ---- VERIFICAR RESPUESTA DE A ----
+def on_authB_response(client, userdata, msg):
+    respuesta = decrypt_aes(clave_sesion, msg.payload)
+    if respuesta == nonce_B:
+        print("[B] A autenticado correctamente")
+        autenticado.append(True)
+    else:
+        print("[B] Error: A no autenticado")
+
+# ---- RECIBIR DATOS MÉDICOS ----
+def on_datos_med(client, userdata, msg):
+    try:
+        mensaje = decrypt_aes(clave_sesion, msg.payload)
+        print(f"[B] Datos recibidos: {mensaje.decode()}")
+    except Exception as e:
+        print(f"[B] Error al descifrar mensaje: {e}")
 
 client.message_callback_add("ucisec/authA", on_authA)
-client.subscribe("ucisec/authA")
+client.message_callback_add("ucisec/authB_response", on_authB_response)
+client.on_message = on_datos_med
 
-# Parte 2: autenticar a A
-def autenticar_con_a():
-    print("\n[Autenticación B → A]")
-
-    nonce_B = generar_nonce()
-    client.publish("ucisec/authB", encrypt_aes(clave_sesion, nonce_B))
-
-    respuesta = []
-
-    def recibir_respuesta(client, userdata, msg):
-        if decrypt_aes(clave_sesion, msg.payload) == nonce_B:
-            print("<< A autenticado correctamente")
-        else:
-            print("!! Nodo A no es confiable")
-        respuesta.append(True)
-
-    client.subscribe("ucisec/authB_response")
-    client.message_callback_add("ucisec/authB_response", recibir_respuesta)
-
-    while not respuesta:
-        client.loop(timeout=0.1)
-
-# Recibir datos
-def on_message(client, userdata, msg):
-    print("\nMensaje cifrado recibido:", msg.payload.decode())
-    try:
-        mensaje_descifrado = decrypt_aes(clave_sesion, msg.payload)
-        print(">> Mensaje descifrado:", mensaje_descifrado.decode())
-    except:
-        print("Error al descifrar")
-
-client.on_message = on_message
-client.subscribe("ucisec/med")
-
-# Conectar y ejecutar
 client.connect(broker)
+client.subscribe("ucisec/authA")
+client.subscribe("ucisec/authB_response")
+client.subscribe("ucisec/med")
 client.loop_start()
 
-print("Nodo B esperando autenticación de A...")
-time.sleep(2)
+# ---- INICIAR AUTENTICACIÓN B → A ----
+print(f"[B] Enviando nonce B: {nonce_B.hex()}")
+client.publish("ucisec/authB", encrypt_aes(clave_sesion, nonce_B))
 
-autenticar_con_a()
+while not autenticado:
+    time.sleep(0.2)
 
-print("\n[Autenticación mutua completada]\n")
-client.loop_forever()
+print("\n[B] Autenticación mutua completada. Esperando datos...\n")
+
+while True:
+    time.sleep(0.5)

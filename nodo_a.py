@@ -1,71 +1,64 @@
 # nodo_a.py
 
 import time
-import base64
+import random
 import paho.mqtt.client as mqtt
-from utils_crypto import (
-    encrypt_aes, decrypt_aes,
-    generar_nonce
-)
+from utils_crypto import encrypt_aes, decrypt_aes, generar_nonce
 
-# Leer claves
+print("[A] Iniciando Nodo A (Sensor Médico)")
+
 with open("claves/clave_maestra_A.bin", "rb") as f:
     master_key = f.read()
-
 with open("claves/clave_sesion.bin", "rb") as f:
     clave_cifrada = encrypt_aes(master_key, f.read())
-
 clave_sesion = decrypt_aes(master_key, clave_cifrada)
+print("[A] Clave de sesión descifrada correctamente")
 
-# MQTT
 broker = "localhost"
-topic_datos = "ucisec/med"
 client = mqtt.Client()
 
-# Autenticación mutua
+autenticado = []
+nonce_A = generar_nonce()
 
-def autenticar_con_b(client, clave_sesion):
-    print("\n[Autenticación A → B]")
-
-    nonce_A = generar_nonce()
-    client.publish("ucisec/authA", encrypt_aes(clave_sesion, nonce_A))
-
-    respuesta = []
-
-    def recibir_respuesta(client, userdata, msg):
-        if decrypt_aes(clave_sesion, msg.payload) == nonce_A:
-            print("<< B autenticado correctamente")
-        else:
-            print("!! Nodo B no es confiable")
-        respuesta.append(True)
-
-    client.subscribe("ucisec/authA_response")
-    client.message_callback_add("ucisec/authA_response", recibir_respuesta)
-
-    while not respuesta:
-        client.loop(timeout=0.1)
-
-def responder_a_b(client, userdata, msg):
+# ---- RESPONDER AL NONCE DE B ----
+def recibir_nonce_de_B(client, userdata, msg):
     nonce_B = decrypt_aes(clave_sesion, msg.payload)
+    print(f"[A] Recibido nonce B: {nonce_B.hex()}")
     client.publish("ucisec/authB_response", encrypt_aes(clave_sesion, nonce_B))
-    print(">> Respuesta de autenticación enviada a B")
+    print("[A] Respuesta enviada a B")
 
-client.message_callback_add("ucisec/authB", responder_a_b)
+# ---- VERIFICAR RESPUESTA DE B ----
+def recibir_respuesta_de_B(client, userdata, msg):
+    respuesta = decrypt_aes(clave_sesion, msg.payload)
+    if respuesta == nonce_A:
+        print("[A] B autenticado correctamente")
+        autenticado.append(True)
+    else:
+        print("[A] Error: B no autenticado")
 
-# Iniciar conexión
+client.message_callback_add("ucisec/authB", recibir_nonce_de_B)
+client.message_callback_add("ucisec/authA_response", recibir_respuesta_de_B)
+
 client.connect(broker)
-client.loop_start()
-autenticar_con_b(client, clave_sesion)
 client.subscribe("ucisec/authB")
+client.subscribe("ucisec/authA_response")
+client.loop_start()
 
-print("\nNodo A listo. Enviando datos cifrados...\n")
+# ---- INICIAR AUTENTICACIÓN A → B ----
+print(f"[A] Enviando nonce A: {nonce_A.hex()}")
+client.publish("ucisec/authA", encrypt_aes(clave_sesion, nonce_A))
+
+while not autenticado:
+    time.sleep(0.2)
+
+print("\n[A] Autenticación mutua completada. Enviando datos médicos...\n")
 
 while True:
-    temperatura = f"temperatura:{round(36 + 2 * time.time() % 1, 1)}°C"
-    mensaje = temperatura.encode()
-
-    mensaje_cifrado = encrypt_aes(clave_sesion, mensaje)
-    print(">> Enviando:", mensaje_cifrado.decode())
-
-    client.publish(topic_datos, mensaje_cifrado)
+    temperatura = round(36 + random.random() * 2, 1)
+    pulso = random.randint(60, 100)
+    spo2 = random.randint(94, 100)
+    datos = f"TEMP:{temperatura}°C | PULSO:{pulso}bpm | SpO2:{spo2}%"
+    mensaje = encrypt_aes(clave_sesion, datos.encode())
+    client.publish("ucisec/med", mensaje)
+    print(f"[A] Datos enviados: {datos}")
     time.sleep(5)
