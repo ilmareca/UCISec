@@ -3,7 +3,7 @@
 import time
 import random
 import paho.mqtt.client as mqtt
-from utils_crypto import encrypt_aes, decrypt_aes, generar_nonce
+from utils_crypto import encrypt_aes, decrypt_aes, encrypt_chacha20, generar_nonce
 
 print("[A] Iniciando Nodo A (Sensor Médico)")
 
@@ -58,7 +58,7 @@ while True:
     pulso = random.randint(60, 100)
     spo2 = random.randint(94, 100)
     datos = f"TEMP:{temperatura}°C | PULSO:{pulso}bpm | SpO2:{spo2}%"
-    mensaje = encrypt_aes(clave_sesion, datos.encode())
+    mensaje = encrypt_chacha20(clave_sesion, datos.encode())
     client.publish("ucisec/med", mensaje)
     print(f"[A] Datos enviados: {datos}")
     time.sleep(5)

@@ -2,7 +2,7 @@
 
 import time
 import paho.mqtt.client as mqtt
-from utils_crypto import encrypt_aes, decrypt_aes, generar_nonce
+from utils_crypto import encrypt_aes, decrypt_aes, decrypt_chacha20, generar_nonce
 
 print("[B] Iniciando Nodo B (Servidor Médico)")
 
@@ -38,10 +38,11 @@ def on_authB_response(client, userdata, msg):
 # ---- RECIBIR DATOS MÉDICOS ----
 def on_datos_med(client, userdata, msg):
     try:
-        mensaje = decrypt_aes(clave_sesion, msg.payload)
-        print(f"[B] Datos recibidos: {mensaje.decode()}")
+        mensaje = decrypt_chacha20(clave_sesion, msg.payload)
+        print(f"[B] Datos médicos descifrados (ChaCha20): {mensaje.decode()}")
     except Exception as e:
-        print(f"[B] Error al descifrar mensaje: {e}")
+        print(f"[B] Error al descifrar con ChaCha20: {e}")
+
 
 client.message_callback_add("ucisec/authA", on_authA)
 client.message_callback_add("ucisec/authB_response", on_authB_response)
